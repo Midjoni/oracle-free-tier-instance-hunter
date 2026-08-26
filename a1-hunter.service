@@ -1,0 +1,21 @@
+# Install:
+#   sudo cp a1-hunter.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now a1-hunter
+#
+# Adjust User= and the paths if you cloned somewhere else.
+
+[Unit]
+Description=Hunt for Oracle Cloud Always Free capacity
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/home/ubuntu/oracle-free-tier-instance-hunter/a1-hunter.sh
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target
