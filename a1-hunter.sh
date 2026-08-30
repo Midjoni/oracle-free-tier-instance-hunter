@@ -45,8 +45,8 @@ OS_VERSION="${OS_VERSION:-24.04}"
 ASSIGN_PUBLIC_IP="${ASSIGN_PUBLIC_IP:-true}"
 SSH_KEY_FILE="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
 
-INTERVAL="${INTERVAL:-60}"          # seconds between attempts; <30 invites rate limiting
-MAX_BACKOFF="${MAX_BACKOFF:-300}"   # ceiling for the 429 backoff
+INTERVAL="${INTERVAL:-120}"         # seconds between attempts; lowering this measurably hurts, see README
+MAX_BACKOFF="${MAX_BACKOFF:-900}"   # ceiling for the 429 backoff
 DEADLINE_DAYS="${DEADLINE_DAYS:-0}" # 0 = run forever
 DRY_RUN="${DRY_RUN:-0}"             # 1 = resolve everything and exit without launching
 CREATE_NETWORK="${CREATE_NETWORK:-0}" # 1 = build a VCN + public subnet if none found

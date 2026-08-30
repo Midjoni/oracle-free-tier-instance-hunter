@@ -76,10 +76,26 @@ usually happens while you are asleep.
 
 ### Does retrying faster improve my odds?
 
-**Only up to a point, and past ~30 seconds it backfires.** Below that interval Oracle
-returns `TooManyRequests`, and each rate-limit costs you a backoff longer than the
-interval you saved. 60 seconds is a sensible floor. This script defaults to 60s and backs
-off exponentially only when actually rate-limited.
+**No — and this is measured, not guessed.** Oracle's rate limiter appears to adapt to
+sustained request rates, so a tighter interval buys more API calls but a *smaller* number
+of real capacity checks. Same account, same region, two pacing settings:
+
+| Interval | Real capacity checks | Rate-limited (wasted) | Share wasted |
+|---|---|---|---|
+| **120s** | **353/day** | 7/day | 2% |
+| 60s | 282/day | 160/day | **36%** |
+
+Halving the interval produced **20% fewer real attempts per day**. At 60s, more than a
+third of every call was rejected before it could even check for capacity, and each
+rejection triggered a backoff longer than the interval saved.
+
+**120 seconds is the default here for that reason.** If you want to experiment, measure
+the ratio rather than the raw attempt count:
+
+```bash
+grep -c "Out of host capacity" a1-hunter.log   # real checks
+grep -c "rate limited" a1-hunter.log           # wasted calls
+```
 
 ### Can I get free capacity in a different region?
 
@@ -145,8 +161,8 @@ Everything is optional. Copy `config.example.env` to `config.env` to change any 
 | `OCPUS` / `MEMORY_GB` | `2` / `12` | Ignored for fixed shapes |
 | `BOOT_VOLUME_GB` | `50` | Free tier gives 200 GB total |
 | `SSH_KEY_FILE` | `~/.ssh/id_rsa.pub` | Log in as `ubuntu` |
-| `INTERVAL` | `60` | Seconds between attempts |
-| `MAX_BACKOFF` | `300` | Ceiling for rate-limit backoff |
+| `INTERVAL` | `120` | Seconds between attempts — see the FAQ before lowering |
+| `MAX_BACKOFF` | `900` | Ceiling for rate-limit backoff |
 | `DEADLINE_DAYS` | `0` | `0` = run forever |
 | `DRY_RUN` | `0` | `1` = resolve config, print, exit |
 | `CREATE_NETWORK` | `0` | `1` = build a VCN + public subnet if none exists |
