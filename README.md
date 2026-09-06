@@ -1,6 +1,6 @@
 # a1-hunter — beat "Out of host capacity" on Oracle Cloud Always Free
 
-[![shellcheck](https://github.com/deadpoolrulesmarvel1-svg/oracle-free-tier-instance-hunter/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/deadpoolrulesmarvel1-svg/oracle-free-tier-instance-hunter/actions/workflows/shellcheck.yml)
+[![shellcheck](https://github.com/ethereaglehq/oracle-free-tier-instance-hunter/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/ethereaglehq/oracle-free-tier-instance-hunter/actions/workflows/shellcheck.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![shell](https://img.shields.io/badge/shell-bash-4EAA25.svg)](a1-hunter.sh)
 
@@ -34,7 +34,7 @@ beats clicking Create.
 ## Quick start
 
 ```bash
-git clone https://github.com/deadpoolrulesmarvel1-svg/oracle-free-tier-instance-hunter.git
+git clone https://github.com/ethereaglehq/oracle-free-tier-instance-hunter.git
 cd oracle-free-tier-instance-hunter
 DRY_RUN=1 ./a1-hunter.sh     # check what it resolved
 ./a1-hunter.sh               # then let it run
