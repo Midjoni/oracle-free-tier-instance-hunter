@@ -156,6 +156,7 @@ Everything is optional. Copy `config.example.env` to `config.env` to change any 
 | Variable | Default | What it does |
 |---|---|---|
 | `OCI_PROFILE` | `DEFAULT` | Profile in `~/.oci/config` |
+| `OCI_CONFIG_FILE` | `~/.oci/config` | OCI config to read (also honours `OCI_CLI_CONFIG_FILE`) |
 | `OCI_BIN` | `oci` | Path to the CLI (useful for a venv install) |
 | `SHAPE` | `VM.Standard.A1.Flex` | Or `VM.Standard.E2.1.Micro` for x86 |
 | `OCPUS` / `MEMORY_GB` | `2` / `12` | Ignored for fixed shapes |

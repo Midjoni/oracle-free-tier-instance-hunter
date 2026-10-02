@@ -32,8 +32,9 @@ CONFIG="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.env}"
 [[ -f "$CONFIG" ]] && . "$CONFIG"
 
 OCI_BIN="${OCI_BIN:-oci}"
-OCI_PROFILE="${OCI_PROFILE:-DEFAULT}"
-OCI_CONFIG_FILE="${OCI_CONFIG_FILE:-$HOME/.oci/config}"
+OCI_PROFILE="${OCI_PROFILE:-${OCI_CLI_PROFILE:-DEFAULT}}"
+OCI_CONFIG_FILE="${OCI_CONFIG_FILE:-${OCI_CLI_CONFIG_FILE:-$HOME/.oci/config}}"
+OCI_CONFIG_FILE="${OCI_CONFIG_FILE/#\~/$HOME}"  # a quoted "~/..." in config.env is not expanded by the shell
 
 SHAPE="${SHAPE:-VM.Standard.A1.Flex}"
 OCPUS="${OCPUS:-2}"
@@ -60,7 +61,25 @@ WEBHOOK_URL="${WEBHOOK_URL:-}"
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"; }
 die() { log "FATAL: $*"; exit 1; }
 
-oci_q() { "$OCI_BIN" "$@" --profile "$OCI_PROFILE" 2>&1; }
+oci_q() { "$OCI_BIN" "$@" --config-file "$OCI_CONFIG_FILE" --profile "$OCI_PROFILE" 2>&1; }
+
+# Print KEY from the active profile of the OCI config, falling back to [DEFAULT] the way
+# the oci CLI does. Accepts "key=value" (what `oci setup config` writes) and "key = value",
+# CRLF line endings, indentation and comment lines.
+oci_config_get() {
+  awk -v want="$OCI_PROFILE" -v key="$1" '
+    { sub(/\r$/, "") }
+    /^[ \t]*([#;]|$)/ { next }
+    /^[ \t]*\[/ { sec = $0; gsub(/^[ \t]*\[[ \t]*|[ \t]*\][ \t]*$/, "", sec); next }
+    {
+      eq = index($0, "="); if (!eq) next
+      k = substr($0, 1, eq - 1); v = substr($0, eq + 1)
+      gsub(/^[ \t]+|[ \t]+$/, "", k); gsub(/^[ \t]+|[ \t]+$/, "", v)
+      if (k != key) next
+      if (sec == want) found = v; else if (sec == "DEFAULT") dflt = v
+    }
+    END { print (found != "" ? found : dflt) }' "$OCI_CONFIG_FILE"
+}
 
 notify() {
   local msg="$1"
@@ -117,9 +136,10 @@ create_network() {
 
 if [[ -z "${COMPARTMENT_ID:-}" ]]; then
   # Default to the tenancy root — where Always Free resources normally live.
-  COMPARTMENT_ID=$(awk -v p="[$OCI_PROFILE]" '
-    $0==p{f=1;next} /^\[/{f=0} f&&/^tenancy/{print $3}' "$OCI_CONFIG_FILE")
-  [[ -n "$COMPARTMENT_ID" ]] || die "could not read tenancy from $OCI_CONFIG_FILE for profile $OCI_PROFILE"
+  [[ -f "$OCI_CONFIG_FILE" ]] || die "OCI config not found: $OCI_CONFIG_FILE (run: oci setup config, or set OCI_CONFIG_FILE)"
+  COMPARTMENT_ID=$(oci_config_get tenancy)
+  [[ "$COMPARTMENT_ID" == ocid1.tenancy* ]] \
+    || die "could not read a tenancy OCID from $OCI_CONFIG_FILE for profile [$OCI_PROFILE] (got: '${COMPARTMENT_ID}')"
   log "discovered compartment (tenancy root): ...${COMPARTMENT_ID: -12}"
 fi
 
