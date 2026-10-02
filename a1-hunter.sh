@@ -116,33 +116,60 @@ command -v "$OCI_BIN" >/dev/null || die "oci CLI not found (set OCI_BIN). See RE
 
 trap 'log "interrupted — exiting"; exit 130' INT TERM
 
+# Pull the last OCID of the given type out of oci output. --wait-for-state prints progress
+# lines ("Action completed. Waiting until...") on stderr, which oci_q merges into stdout.
+ocid_of() { grep -o "ocid1\.$1\.[^[:space:]\"]*" <<< "$2" | tail -1; }
+
 # Create a minimal public network if the account has none. Opt-in via CREATE_NETWORK=1.
+# Safe to re-run: a VCN or gateway left behind by an interrupted run is reused, not duplicated.
 create_network() {
   log "CREATE_NETWORK=1 and no subnet found — building VCN, gateway, route and subnet"
-  local vcn igw rt
-  vcn=$(oci_q network vcn create --compartment-id "$COMPARTMENT_ID" \
-        --cidr-blocks '["10.0.0.0/16"]' --display-name "a1-hunter-vcn" \
-        --dns-label "a1hunter" --wait-for-state AVAILABLE \
-        --query 'data.id' --raw-output) || die "VCN creation failed: $vcn"
-  [[ "$vcn" == ocid1.vcn* ]] || die "VCN creation failed: $vcn"
-  log "  vcn created"
+  local vcn igw rt out
 
-  igw=$(oci_q network internet-gateway create --compartment-id "$COMPARTMENT_ID" \
-        --vcn-id "$vcn" --is-enabled true --display-name "a1-hunter-igw" \
-        --wait-for-state AVAILABLE --query 'data.id' --raw-output) || die "internet gateway creation failed: $igw"
-  log "  internet gateway created"
+  out=$(oci_q network vcn list --compartment-id "$COMPARTMENT_ID" --display-name "a1-hunter-vcn"         --lifecycle-state AVAILABLE --query 'data[0].id' --raw-output)
+  check_oci "$out" "listing VCNs"
+  vcn=$(ocid_of vcn "$out")
+  if [[ -n "$vcn" ]]; then
+    log "  reusing vcn from an earlier run"
+  else
+    out=$(oci_q network vcn create --compartment-id "$COMPARTMENT_ID" \
+          --cidr-blocks '["10.0.0.0/16"]' --display-name "a1-hunter-vcn" \
+          --dns-label "a1hunter" --wait-for-state AVAILABLE \
+          --query 'data.id' --raw-output)
+    vcn=$(ocid_of vcn "$out")
+    [[ -n "$vcn" ]] || die "VCN creation failed: $out"
+    log "  vcn created"
+  fi
 
-  rt=$(oci_q network vcn get --vcn-id "$vcn" --query 'data."default-route-table-id"' --raw-output)
-  oci_q network route-table update --rt-id "$rt" --force \
-    --route-rules "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$igw\"}]" >/dev/null \
-    || die "route table update failed"
+  out=$(oci_q network internet-gateway list --compartment-id "$COMPARTMENT_ID" --vcn-id "$vcn" \
+        --lifecycle-state AVAILABLE --query 'data[0].id' --raw-output)
+  check_oci "$out" "listing internet gateways"
+  igw=$(ocid_of internetgateway "$out")
+  if [[ -n "$igw" ]]; then
+    log "  reusing internet gateway from an earlier run"
+  else
+    out=$(oci_q network internet-gateway create --compartment-id "$COMPARTMENT_ID" \
+          --vcn-id "$vcn" --is-enabled true --display-name "a1-hunter-igw" \
+          --wait-for-state AVAILABLE --query 'data.id' --raw-output)
+    igw=$(ocid_of internetgateway "$out")
+    [[ -n "$igw" ]] || die "internet gateway creation failed: $out"
+    log "  internet gateway created"
+  fi
+
+  out=$(oci_q network vcn get --vcn-id "$vcn" --query 'data."default-route-table-id"' --raw-output)
+  rt=$(ocid_of routetable "$out")
+  [[ -n "$rt" ]] || die "could not read the VCN's default route table: $out"
+  out=$(oci_q network route-table update --rt-id "$rt" --force \
+    --route-rules "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$igw\"}]")
+  check_oci "$out" "route table update"
   log "  default route -> internet gateway"
 
-  SUBNET_ID=$(oci_q network subnet create --compartment-id "$COMPARTMENT_ID" \
+  out=$(oci_q network subnet create --compartment-id "$COMPARTMENT_ID" \
     --vcn-id "$vcn" --cidr-block "10.0.0.0/24" --display-name "a1-hunter-public" \
     --prohibit-public-ip-on-vnic false --route-table-id "$rt" \
-    --wait-for-state AVAILABLE --query 'data.id' --raw-output) || die "subnet creation failed: $SUBNET_ID"
-  [[ "$SUBNET_ID" == ocid1.subnet* ]] || die "subnet creation failed: $SUBNET_ID"
+    --wait-for-state AVAILABLE --query 'data.id' --raw-output)
+  SUBNET_ID=$(ocid_of subnet "$out")
+  [[ -n "$SUBNET_ID" ]] || die "subnet creation failed: $out"
   log "  public subnet created: ...${SUBNET_ID: -12}"
 }
 
@@ -171,7 +198,10 @@ if [[ -z "${SUBNET_ID:-}" ]]; then
     --query 'data[0].id' --raw-output)
   check_oci "$SUBNET_ID" "listing subnets"
   if [[ "$SUBNET_ID" != ocid1.subnet* ]]; then
-    if [[ "$CREATE_NETWORK" == "1" ]]; then
+    if [[ "$CREATE_NETWORK" == "1" && "$DRY_RUN" == "1" ]]; then
+      log "no subnet found — CREATE_NETWORK=1 would build one (skipped in dry run)"
+      SUBNET_ID="(created on the real run)"
+    elif [[ "$CREATE_NETWORK" == "1" ]]; then
       create_network
     else
       die "no subnet found. Either create a VCN with a public subnet in the console, or re-run with CREATE_NETWORK=1 to have this script build one."
