@@ -141,6 +141,22 @@ SHAPE=VM.Standard.E2.1.Micro ./a1-hunter.sh
 **No.** Before every attempt it lists non-terminated instances in the compartment and
 exits if one already exists. Restarting it, or running it after it succeeded, is safe.
 
+### It stops with "401 NotAuthenticated" — what's wrong?
+
+Oracle received a signed request but rejected the API key. The script itself is not involved;
+`oci iam region list` will fail the same way. Check, in order:
+
+- **The key is uploaded to *this* user.** Console → your profile → API keys must list the
+  `fingerprint` from your config. A freshly added key can take a minute or two to work.
+- **`key_file` matches `fingerprint`.** Compare against
+  `openssl rsa -pubout -outform DER -in <key_file> | openssl md5 -c`.
+- **`user` and `tenancy` belong together.** Both OCIDs must come from the same account.
+- **`region` is one your tenancy is subscribed to** — normally the home region. Calling an
+  unsubscribed region returns 401, not 404.
+- **The clock is right.** Requests signed more than ~5 minutes off are rejected.
+
+Re-run any `oci` command with `--debug` to see which config and key it actually used.
+
 ### Does it downgrade to a smaller shape if the full size isn't available?
 
 **Never.** If you ask for 2 OCPU / 12 GB you get that or nothing. A smaller VM is a
