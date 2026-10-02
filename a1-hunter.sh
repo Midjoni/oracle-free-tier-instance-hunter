@@ -63,6 +63,20 @@ die() { log "FATAL: $*"; exit 1; }
 
 oci_q() { "$OCI_BIN" "$@" --config-file "$OCI_CONFIG_FILE" --profile "$OCI_PROFILE" 2>&1; }
 
+# Print a string field ("code", "message", ...) from an oci ServiceError blob.
+oci_err_field() { grep -o "\"$1\": *\"[^\"]*\"" <<< "$2" | head -1 | sed 's/.*: *"//;s/"//'; }
+
+# Die with Oracle's own error if a discovery call returned a ServiceError instead of data.
+check_oci() {
+  [[ "$1" == *ServiceError* ]] || return 0
+  local code msg
+  code=$(oci_err_field code "$1"); msg=$(oci_err_field message "$1")
+  if [[ "$code" == NotAuthenticated ]]; then
+    die "$2: Oracle rejected the API key (401 NotAuthenticated). Check user, fingerprint, key_file, tenancy and region in profile [$OCI_PROFILE] of $OCI_CONFIG_FILE — see the README FAQ"
+  fi
+  die "$2 failed: ${code:-unknown error}${msg:+ — $msg}"
+}
+
 # Print KEY from the active profile of the OCI config, falling back to [DEFAULT] the way
 # the oci CLI does. Accepts "key=value" (what `oci setup config` writes) and "key = value",
 # CRLF line endings, indentation and comment lines.
@@ -144,8 +158,10 @@ if [[ -z "${COMPARTMENT_ID:-}" ]]; then
 fi
 
 if [[ -z "${AVAILABILITY_DOMAINS:-}" ]]; then
-  AVAILABILITY_DOMAINS=$(oci_q iam availability-domain list --compartment-id "$COMPARTMENT_ID" \
-    --query 'data[].name' --raw-output | tr -d '[]", ' | grep -v '^$' | paste -sd, -)
+  out=$(oci_q iam availability-domain list --compartment-id "$COMPARTMENT_ID" \
+    --query 'data[].name' --raw-output)
+  check_oci "$out" "listing availability domains"
+  AVAILABILITY_DOMAINS=$(tr -d '[]", ' <<< "$out" | grep -v '^$' | paste -sd, -)
   [[ -n "$AVAILABILITY_DOMAINS" ]] || die "could not list availability domains"
   log "discovered ADs: $AVAILABILITY_DOMAINS"
 fi
@@ -153,6 +169,7 @@ fi
 if [[ -z "${SUBNET_ID:-}" ]]; then
   SUBNET_ID=$(oci_q network subnet list --compartment-id "$COMPARTMENT_ID" --all \
     --query 'data[0].id' --raw-output)
+  check_oci "$SUBNET_ID" "listing subnets"
   if [[ "$SUBNET_ID" != ocid1.subnet* ]]; then
     if [[ "$CREATE_NETWORK" == "1" ]]; then
       create_network
@@ -169,6 +186,7 @@ if [[ -z "${IMAGE_ID:-}" ]]; then
     --operating-system "$OPERATING_SYSTEM" --operating-system-version "$OS_VERSION" \
     --shape "$SHAPE" --sort-by TIMECREATED --sort-order DESC \
     --query 'data[0].id' --raw-output)
+  check_oci "$IMAGE_ID" "listing images"
   [[ "$IMAGE_ID" == ocid1.image* ]] || die "no image found for $OPERATING_SYSTEM $OS_VERSION on $SHAPE"
   log "discovered image: ...${IMAGE_ID: -12}"
 fi
@@ -245,8 +263,8 @@ while :; do
     exit 0
   fi
 
-  code=$(grep -o '"code": *"[^"]*"' <<< "$out" | head -1 | sed 's/.*: *"//;s/"//')
-  msg=$(grep -o '"message": *"[^"]*"' <<< "$out" | head -1 | sed 's/.*: *"//;s/"//')
+  code=$(oci_err_field code "$out")
+  msg=$(oci_err_field message "$out")
 
   case "$code" in
     TooManyRequests)
