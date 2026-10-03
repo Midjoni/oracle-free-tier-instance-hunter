@@ -22,7 +22,7 @@ Common overrides (or put them in config.env):
   OCI_PROFILE=DEFAULT  SHAPE=VM.Standard.A1.Flex  OCPUS=2  MEMORY_GB=12
   INTERVAL=120  DEADLINE_DAYS=0  SSH_KEY_FILE=~/.ssh/id_ed25519.pub
 
-Full documentation: https://github.com/ethereaglehq/oracle-free-tier-instance-hunter
+Full documentation: https://github.com/Midjoni/oracle-free-tier-instance-hunter
 USAGE
   exit 0
 fi
