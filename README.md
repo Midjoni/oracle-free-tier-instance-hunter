@@ -40,8 +40,9 @@ DRY_RUN=1 ./a1-hunter.sh     # check what it resolved
 ./a1-hunter.sh               # then let it run
 ```
 
-That's it. Compartment, availability domains, subnet and image are all discovered from
-your existing `~/.oci/config` — most people need no configuration at all.
+That's it, provided `oci iam region list` already works on this machine — if not, do the
+[setup](#setup) first. Compartment, availability domains, subnet and image are all
+discovered from your `~/.oci/config`; most people need no configuration at all.
 
 No VCN yet? Let it build one:
 
@@ -49,13 +50,82 @@ No VCN yet? Let it build one:
 CREATE_NETWORK=1 ./a1-hunter.sh
 ```
 
-## Requirements
+This creates `a1-hunter-vcn` with an internet gateway, a default route and a public subnet.
+If a run is interrupted part-way, running it again reuses what was already built.
 
-- [OCI CLI](https://docs.oracle.com/iaas/Content/API/SDKDocs/cliinstall.htm), configured with `oci setup config`
-- An SSH public key (`ssh-keygen -t ed25519` if you have none)
-- `bash` and `curl`. `jq` only if you want webhook notifications.
+## Setup
 
-Works on Linux and macOS.
+You need `bash`, `curl` and the OCI CLI; `jq` only for webhook notifications. Works on Linux
+and macOS. There are two different keys involved, and mixing them up is the most common
+reason a first run fails:
+
+| Key | Made by | Used for | Lives in |
+|---|---|---|---|
+| **API key** | `oci setup config` | the script talking to Oracle | `~/.oci/` |
+| **SSH key** | `ssh-keygen` | you logging into the new VM | `~/.ssh/` |
+
+### 1. Install and configure the OCI CLI
+
+Install the [OCI CLI](https://docs.oracle.com/iaas/Content/API/SDKDocs/cliinstall.htm), then:
+
+```bash
+oci setup config
+```
+
+It asks for your user OCID (Console → profile menu → *My profile*), your tenancy OCID
+(profile menu → *Tenancy*) and a region — pick your **home region**, the only one where
+Always Free resources exist. When it offers to generate a new API key pair, say yes. It
+writes three files:
+
+- `~/.oci/config` — the profile this script reads
+- `~/.oci/oci_api_key.pem` — the private key; it never leaves this machine
+- `~/.oci/oci_api_key_public.pem` — the public key, which you upload next
+
+### 2. Upload the API public key to Oracle
+
+`oci setup config` only creates the key locally. Until Oracle has the public half, every
+call fails with `401 NotAuthenticated`. Print it:
+
+```bash
+cat ~/.oci/oci_api_key_public.pem
+```
+
+In the Console, open profile menu → *My profile* → *API keys* → *Add API key* →
+*Paste a public key*, paste everything including the `-----BEGIN PUBLIC KEY-----` and
+`-----END PUBLIC KEY-----` lines, and click *Add*. The fingerprint Oracle shows must equal
+the `fingerprint=` line in `~/.oci/config`. Then check:
+
+```bash
+oci iam region list    # prints regions = working; 401 = see the FAQ
+```
+
+**Generated a new key later?** If you re-run `oci setup config` and let it make a new pair,
+upload the new `oci_api_key_public.pem` the same way — the old key in the Console no longer
+matches.
+
+### 3. Create an SSH key for the instance
+
+This one is installed on the new VM so you can log in to it.
+
+```bash
+ssh-keygen -t ed25519    # writes ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub
+```
+
+The script uses `~/.ssh/id_ed25519.pub` automatically, falling back to `~/.ssh/id_rsa.pub`
+or `~/.ssh/id_ecdsa.pub` if that is what you have. To use a different key, set
+`SSH_KEY_FILE` to its `.pub` file — never the private key; the script refuses one.
+
+## When it succeeds
+
+The log says `SUCCESS`, the launch response is saved to `result.json`, and you get a
+Telegram/webhook message if you configured one. The script then exits; running it again
+does nothing while the instance exists. The public IP appears a minute or so later:
+
+```bash
+oci compute instance list-vnics --instance-id "$(jq -r .data.id result.json)" \
+  --query 'data[0]."public-ip"' --raw-output
+ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
+```
 
 ---
 
@@ -146,8 +216,10 @@ exits if one already exists. Restarting it, or running it after it succeeded, is
 Oracle received a signed request but rejected the API key. The script itself is not involved;
 `oci iam region list` will fail the same way. Check, in order:
 
-- **The key is uploaded to *this* user.** Console → your profile → API keys must list the
-  `fingerprint` from your config. A freshly added key can take a minute or two to work.
+- **The key is uploaded to *this* user.** Console → *My profile* → *API keys* must list the
+  `fingerprint` from your config. `oci setup config` does not upload it for you — see
+  [setup step 2](#2-upload-the-api-public-key-to-oracle). A freshly added key can take a
+  minute or two to work.
 - **`key_file` matches `fingerprint`.** Compare against
   `openssl rsa -pubout -outform DER -in <key_file> | openssl md5 -c`.
 - **`user` and `tenancy` belong together.** Both OCIDs must come from the same account.
@@ -177,7 +249,7 @@ Everything is optional. Copy `config.example.env` to `config.env` to change any 
 | `SHAPE` | `VM.Standard.A1.Flex` | Or `VM.Standard.E2.1.Micro` for x86 |
 | `OCPUS` / `MEMORY_GB` | `2` / `12` | Ignored for fixed shapes |
 | `BOOT_VOLUME_GB` | `50` | Free tier gives 200 GB total |
-| `SSH_KEY_FILE` | `~/.ssh/id_rsa.pub` | Log in as `ubuntu` |
+| `SSH_KEY_FILE` | `~/.ssh/id_ed25519.pub` | Falls back to `id_rsa.pub` / `id_ecdsa.pub`. Log in as `ubuntu` |
 | `INTERVAL` | `120` | Seconds between attempts — see the FAQ before lowering |
 | `MAX_BACKOFF` | `900` | Ceiling for rate-limit backoff |
 | `DEADLINE_DAYS` | `0` | `0` = run forever |
@@ -200,7 +272,12 @@ sudo systemctl enable --now a1-hunter
 journalctl -u a1-hunter -f
 ```
 
-`enable` is the important word — see below.
+The unit assumes user `ubuntu` and a clone in `/home/ubuntu`; edit `User=` and
+`ExecStart=` to match yours (for root: `User=root`, `/root/...`). The OCI and SSH keys are
+read from that user's home directory.
+
+`enable` is the important word — see below. `tmux` or `screen` is fine for a first test,
+but like `nohup` it will not survive a reboot.
 
 ## Lessons learned the hard way
 

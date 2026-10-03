@@ -1,3 +1,4 @@
 config.env
 *.log
 result.json
+.DS_Store

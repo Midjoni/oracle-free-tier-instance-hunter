@@ -20,7 +20,7 @@ a1-hunter — keep asking Oracle Cloud for an Always Free instance until one exi
 
 Common overrides (or put them in config.env):
   OCI_PROFILE=DEFAULT  SHAPE=VM.Standard.A1.Flex  OCPUS=2  MEMORY_GB=12
-  INTERVAL=60  DEADLINE_DAYS=0  SSH_KEY_FILE=~/.ssh/id_rsa.pub
+  INTERVAL=120  DEADLINE_DAYS=0  SSH_KEY_FILE=~/.ssh/id_ed25519.pub
 
 Full documentation: https://github.com/ethereaglehq/oracle-free-tier-instance-hunter
 USAGE
@@ -44,7 +44,14 @@ DISPLAY_NAME="${DISPLAY_NAME:-free-instance}"
 OPERATING_SYSTEM="${OPERATING_SYSTEM:-Canonical Ubuntu}"
 OS_VERSION="${OS_VERSION:-24.04}"
 ASSIGN_PUBLIC_IP="${ASSIGN_PUBLIC_IP:-true}"
-SSH_KEY_FILE="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
+# Default to whichever key `ssh-keygen` made: id_ed25519 for `-t ed25519`, id_rsa for the old default.
+if [[ -z "${SSH_KEY_FILE:-}" ]]; then
+  for k in id_ed25519 id_rsa id_ecdsa; do
+    [[ -f "$HOME/.ssh/$k.pub" ]] && { SSH_KEY_FILE="$HOME/.ssh/$k.pub"; break; }
+  done
+fi
+SSH_KEY_FILE="${SSH_KEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
+SSH_KEY_FILE="${SSH_KEY_FILE/#\~/$HOME}"
 
 INTERVAL="${INTERVAL:-120}"         # seconds between attempts; lowering this measurably hurts, see README
 MAX_BACKOFF="${MAX_BACKOFF:-900}"   # ceiling for the 429 backoff
@@ -104,14 +111,17 @@ notify() {
       || log "warn: telegram notification failed"
   fi
   if [[ -n "$WEBHOOK_URL" ]]; then
+    local json; json=$(printf '%s' "$msg" | jq -Rs .)
     curl -fsS -m 20 -H 'Content-Type: application/json' \
-      -d "$(printf '{"content":%s,"text":%s}' "$(printf '%s' "$msg" | jq -Rs .)" "$(printf '%s' "$msg" | jq -Rs .)")" \
+      -d "{\"content\":$json,\"text\":$json}" \
       "$WEBHOOK_URL" >/dev/null 2>&1 || log "warn: webhook notification failed"
   fi
 }
 
 command -v "$OCI_BIN" >/dev/null || die "oci CLI not found (set OCI_BIN). See README."
-[[ -f "$SSH_KEY_FILE" ]] || die "SSH public key not found: $SSH_KEY_FILE (generate one with: ssh-keygen -t ed25519)"
+[[ -f "$SSH_KEY_FILE" ]] || die "SSH public key not found: $SSH_KEY_FILE (create one with: ssh-keygen -t ed25519, which writes ~/.ssh/id_ed25519.pub)"
+grep -qE '^(ssh-|ecdsa-|sk-)' "$SSH_KEY_FILE" \
+  || die "$SSH_KEY_FILE is not an SSH public key — point SSH_KEY_FILE at the .pub file, never the private key"
 (( INTERVAL < 30 )) && log "warn: INTERVAL=${INTERVAL}s is below 30s — expect TooManyRequests, which will slow you down overall"
 
 trap 'log "interrupted — exiting"; exit 130' INT TERM
