@@ -72,10 +72,10 @@ Install the [OCI CLI](https://docs.oracle.com/iaas/Content/API/SDKDocs/cliinstal
 oci setup config
 ```
 
-It asks for your user OCID (Console → profile menu → *My profile*), your tenancy OCID
-(profile menu → *Tenancy*) and a region — pick your **home region**, the only one where
-Always Free resources exist. When it offers to generate a new API key pair, say yes. It
-writes three files:
+It asks for your user OCID (Console → profile picture → *User settings*, shown on the
+*My profile* page), your tenancy OCID (profile picture → *Tenancy*) and a region — pick
+your **home region**, the only one where Always Free resources exist. When it offers to
+generate a new API key pair, say yes. It writes three files:
 
 - `~/.oci/config` — the profile this script reads
 - `~/.oci/oci_api_key.pem` — the private key; it never leaves this machine
@@ -90,10 +90,11 @@ call fails with `401 NotAuthenticated`. Print it:
 cat ~/.oci/oci_api_key_public.pem
 ```
 
-In the Console, open profile menu → *My profile* → *API keys* → *Add API key* →
-*Paste a public key*, paste everything including the `-----BEGIN PUBLIC KEY-----` and
-`-----END PUBLIC KEY-----` lines, and click *Add*. The fingerprint Oracle shows must equal
-the `fingerprint=` line in `~/.oci/config`. Then check:
+In the Console, click your profile picture → *User settings*, which opens *My profile*.
+Open the *Tokens and keys* tab → *Add API key* → *Paste a public key*, paste everything
+including the `-----BEGIN PUBLIC KEY-----` and `-----END PUBLIC KEY-----` lines, and click
+*Add*. The fingerprint Oracle shows must equal the `fingerprint=` line in `~/.oci/config`.
+Then check:
 
 ```bash
 oci iam region list    # prints regions = working; 401 = see the FAQ
@@ -216,10 +217,10 @@ exits if one already exists. Restarting it, or running it after it succeeded, is
 Oracle received a signed request but rejected the API key. The script itself is not involved;
 `oci iam region list` will fail the same way. Check, in order:
 
-- **The key is uploaded to *this* user.** Console → *My profile* → *API keys* must list the
-  `fingerprint` from your config. `oci setup config` does not upload it for you — see
-  [setup step 2](#2-upload-the-api-public-key-to-oracle). A freshly added key can take a
-  minute or two to work.
+- **The key is uploaded to *this* user.** Console → profile picture → *User settings* →
+  *Tokens and keys* must list the `fingerprint` from your config. `oci setup config` does
+  not upload it for you — see [setup step 2](#2-upload-the-api-public-key-to-oracle). A
+  freshly added key can take a minute or two to work.
 - **`key_file` matches `fingerprint`.** Compare against
   `openssl rsa -pubout -outform DER -in <key_file> | openssl md5 -c`.
 - **`user` and `tenancy` belong together.** Both OCIDs must come from the same account.
